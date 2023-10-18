@@ -1,0 +1,66 @@
+#!/bin/bash
+set -e
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo -e 'docker-entrypoint must be run as root.'
+    exit 1
+fi
+
+DEV_USER_NAME=${DEV_USER_NAME:-devcontainer}
+DEV_USER_ID=${DEV_USER_ID:-1000}
+DEV_GROUP_NAME=${DEV_GROUP_NAME:-${DEV_USER_NAME}}
+DEV_GROUP_ID=${DEV_GROUP_ID:-${DEV_USER_ID}}
+DEV_USER_HOME=${DEV_USER_HOME:-/home/${DEV_USER_NAME}}
+
+if [ "${DEV_USER_HOME}" == "${DEV_USER_HOME#/}" ]; then
+    echo -e "DEV_USER_HOME should be absolute path."
+    exit 1
+fi
+
+# Modify existing user with given ID and change files ownership
+EXIST_USER_NAME=$(getent passwd ${DEV_USER_ID} | awk -F: '{print $1}' || echo "")
+if [[ ${EXIST_USER_NAME} != "" ]]; then
+    case "1234" in
+        ${DEV_USER_ID}) TMP_USER_ID=4321 ;;
+        *) TMP_USER_ID=1234 ;;
+    esac
+
+    usermod -u ${TMP_USER_ID} ${EXIST_USER_NAME}
+    find / -user ${DEV_USER_ID} -exec chown -h ${EXIST_USER_NAME} {} \;
+fi
+
+# Modify existing group with given ID and change files ownership
+EXIST_GROUP_NAME=$(getent group ${DEV_GROUP_ID} | awk -F: '{print $1}' || echo "")
+if [[ ${EXIST_GROUP_NAME} != "" ]]; then
+    case "1234" in
+        ${DEV_GROUP_ID}) TMP_GROUP_ID=4321 ;;
+        *) TMP_GROUP_ID=1234 ;;
+    esac
+
+    groupmod -g ${TMP_GROUP_ID} ${EXIST_GROUP_NAME}
+    find / -group ${DEV_GROUP_ID} -exec chgrp -h ${EXIST_GROUP_NAME} {} \;
+fi
+
+# Create container user with sudo rights
+mkdir -p ${DEV_USER_HOME} ${DEV_USER_HOME}/.cache /data/phpactor
+addgroup --gid ${DEV_GROUP_ID} ${DEV_GROUP_NAME}
+adduser --system --home ${DEV_USER_HOME} --shell /bin/bash --uid ${DEV_USER_ID} --ingroup ${DEV_GROUP_NAME} --disabled-password ${DEV_USER_NAME}
+ln -s /data/phpactor ${DEV_USER_HOME}/.cache/phpactor
+chown -R ${DEV_USER_NAME}:${DEV_GROUP_NAME} ${DEV_USER_HOME} /usr/local/etc/php /data
+echo "${DEV_USER_NAME} ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/${DEV_USER_NAME}
+chmod 0440 /etc/sudoers.d/${DEV_USER_NAME}
+
+# Setup docker socket proxy
+if [ -f /var/run/docker-host.sock ]; then
+    rm -rf /var/run/docker.sock
+    ((socat UNIX-LISTEN:/var/run/docker.sock,fork,mode=660,user=${DEV_USER_NAME} UNIX-CONNECT:/var/run/docker-host.sock) 2>&1 >> /dev/null) & >> /dev/null
+fi
+
+if [ "$1" = '--sleep' ]; then
+    trap "exit" TERM
+    while true; do
+        sleep 1
+    done
+fi
+
+exec su ${DEV_USER_NAME} -c "docker-php-entrypoint $@"

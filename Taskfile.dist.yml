@@ -1,0 +1,12 @@
+# Reference: https://taskfile.dev/usage/
+
+version: '3'
+
+tasks:
+  build:
+    desc: Build docker image
+    preconditions:
+      - test -f docker-bake.hcl || test -f docker-bake.json
+    cmds:
+      # https://docs.docker.com/engine/reference/commandline/buildx_bake/
+      - docker buildx bake --pull
