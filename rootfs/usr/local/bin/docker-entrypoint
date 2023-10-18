@@ -51,7 +51,7 @@ echo "${DEV_USER_NAME} ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/${DEV_USER_NAME
 chmod 0440 /etc/sudoers.d/${DEV_USER_NAME}
 
 # Setup docker socket proxy
-if [ -f /var/run/docker-host.sock ]; then
+if [[ -e /var/run/docker-host.sock ]]; then
     rm -rf /var/run/docker.sock
     ((socat UNIX-LISTEN:/var/run/docker.sock,fork,mode=660,user=${DEV_USER_NAME} UNIX-CONNECT:/var/run/docker-host.sock) 2>&1 >> /dev/null) & >> /dev/null
 fi
